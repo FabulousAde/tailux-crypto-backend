@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import User from "../models/userModel.js";
 import Wallet from "../models/walletModel.js";
-import { sendVerificationEmail } from "../utils/emailService.js";
+// import { sendVerificationEmail } from "../utils/emailService.js"; // 🚫 commented out
 
 dotenv.config();
 
@@ -17,14 +17,15 @@ const generateToken = (user) => {
 };
 
 // ─────────────────────────────────────────────
-// REGISTER USER
+// REGISTER USER (Email verification disabled)
 // ─────────────────────────────────────────────
 export const registerUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
     const existing = await User.findOne({ where: { email } });
-    if (existing) return res.status(400).json({ message: "Email already registered" });
+    if (existing)
+      return res.status(400).json({ message: "Email already registered" });
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -32,7 +33,7 @@ export const registerUser = async (req, res) => {
       name,
       email,
       password_hash: hashedPassword,
-      email_verified: false,
+      email_verified: true, // ✅ mark verified automatically for now
     });
 
     // Create default wallets
@@ -45,14 +46,12 @@ export const registerUser = async (req, res) => {
       });
     }
 
-    // Create short-lived verification token (24h)
-    const verifyToken = generateToken({ id: user.id, email: user.email }, "24h");
-
-    // Send verification email
-    await sendVerificationEmail(user.email, verifyToken);
+    // 🚫 Commented out email verification for now
+    // const verifyToken = generateToken({ id: user.id, email: user.email }, "24h");
+    // await sendVerificationEmail(user.email, verifyToken);
 
     res.status(201).json({
-      message: "User registered successfully. Verification email sent.",
+      message: "User registered successfully.",
       user: { id: user.id, email: user.email, name: user.name },
     });
   } catch (err) {
@@ -72,7 +71,8 @@ export const loginUser = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     const isValid = await bcrypt.compare(password, user.password_hash);
-    if (!isValid) return res.status(401).json({ message: "Invalid credentials" });
+    if (!isValid)
+      return res.status(401).json({ message: "Invalid credentials" });
 
     const token = generateToken(user);
     res.json({
@@ -87,12 +87,15 @@ export const loginUser = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────
-// VERIFY EMAIL (mock implementation)
+// VERIFY EMAIL (kept for later use)
 // ─────────────────────────────────────────────
 export const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "tailuxsupersecretkey");
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || "tailuxsupersecretkey"
+    );
 
     const user = await User.findByPk(decoded.id);
     if (!user) return res.status(404).json({ message: "Invalid token" });
@@ -100,10 +103,14 @@ export const verifyEmail = async (req, res) => {
     user.email_verified = true;
     await user.save();
 
-    res.send(`<h2>Email verified successfully ✅</h2><p>You can now close this tab.</p>`);
+    res.send(
+      `<h2>Email verified successfully ✅</h2><p>You can now close this tab.</p>`
+    );
   } catch (err) {
     console.error(err);
-    res.status(400).send(`<h3>Verification link expired or invalid ❌</h3>`);
+    res
+      .status(400)
+      .send(`<h3>Verification link expired or invalid ❌</h3>`);
   }
 };
 
