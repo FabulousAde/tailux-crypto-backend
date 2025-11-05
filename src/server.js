@@ -13,6 +13,7 @@ import "./models/transactionModel.js";
 import walletRoutes from "./routes/walletRoutes.js"; // wallets route (you’ll add more later)
 import authRoutes from "./routes/authRoutes.js";
 import transactionRoutes from "./routes/transactionRoutes.js";
+import cryptoRoutes from "./routes/cryptoRoutes.js";
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.get("/", (req, res) => {
 app.use("/api/wallets", walletRoutes); // wallet endpoints
 app.use("/api/auth", authRoutes);
 app.use("/api/transactions", transactionRoutes);
+app.use("/api/crypto", cryptoRoutes);
 
 // ──────────────────────────────────────────────────────────────
 // 🔌 Server + Database Connection
