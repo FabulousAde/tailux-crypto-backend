@@ -1,16 +1,29 @@
 // routes/cryptoRoutes.js
 import express from "express";
 import axios from "axios";
+import NodeCache from "node-cache";
 import { verifyToken } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// ✅ Proxy endpoint for crypto prices + 7-day chart data
+// ✅ Cache data for 5 minutes (300 seconds)
+const cache = new NodeCache({ stdTTL: 300 }); // 5 min
+
 router.get("/prices", verifyToken, async (req, res) => {
   try {
     const currency = req.query.currency || "usd";
+    const cacheKey = `crypto-prices-${currency}`;
 
-    // 1️⃣ Fetch main prices (current price + 24hr change)
+    // 1️⃣ Serve from cache if available
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      console.log("✅ Serving crypto data from cache");
+      return res.json({ success: true, data: cachedData });
+    }
+
+    console.log("⚡ Fetching fresh data from CoinGecko");
+
+    // 2️⃣ Fetch current prices + 7-day charts
     const mainRes = await axios.get(
       "https://api.coingecko.com/api/v3/simple/price",
       {
@@ -24,7 +37,6 @@ router.get("/prices", verifyToken, async (req, res) => {
 
     const baseData = mainRes.data;
 
-    // 2️⃣ Fetch 7-day chart data for each coin
     const [btcChart, ethChart, ltcChart] = await Promise.all([
       axios.get("https://api.coingecko.com/api/v3/coins/bitcoin/market_chart", {
         params: { vs_currency: currency, days: "7" },
@@ -37,10 +49,8 @@ router.get("/prices", verifyToken, async (req, res) => {
       }),
     ]);
 
-    const simplify = (chartData) =>
-      chartData.data.prices.map((p) => p[1]);
+    const simplify = (chartData) => chartData.data.prices.map((p) => p[1]);
 
-    // 3️⃣ Combine all data into one unified response
     const combined = {
       bitcoin: {
         ...baseData.bitcoin,
@@ -56,9 +66,21 @@ router.get("/prices", verifyToken, async (req, res) => {
       },
     };
 
+    // 3️⃣ Save to cache before returning
+    cache.set(cacheKey, combined);
+
     res.json({ success: true, data: combined });
   } catch (error) {
     console.error("❌ Error fetching crypto data:", error.message);
+
+    if (error.response?.status === 429) {
+      return res.status(429).json({
+        success: false,
+        message:
+          "CoinGecko rate limit reached. Please try again after a few minutes.",
+      });
+    }
+
     res.status(500).json({
       success: false,
       message: "Failed to fetch crypto data",
