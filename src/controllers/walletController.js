@@ -1,5 +1,6 @@
 import axios from "axios";
 import Wallet from "../models/walletModel.js";
+import User from "../models/userModel.js"; // ensure this path matches your project
 
 // ─────────────────────────────────────────────
 // 1️⃣ GET all wallets for a logged-in user
@@ -7,10 +8,10 @@ import Wallet from "../models/walletModel.js";
 export const getAllWallets = async (req, res) => {
   try {
     const wallets = await Wallet.findAll({ where: { user_id: req.user.id } });
-    res.json(wallets);
+    return res.json(wallets);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error fetching wallets" });
+    console.error("❌ Error fetching wallets:", err);
+    return res.status(500).json({ message: "Error fetching wallets" });
   }
 };
 
@@ -19,25 +20,35 @@ export const getAllWallets = async (req, res) => {
 // ─────────────────────────────────────────────
 export const initWallets = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const requesterId = req.user.id;
+    const { user_id } = req.body || {};
+    const targetUserId = user_id || requesterId;
+
+    // ✅ verify user exists
+    const u = await User.findByPk(targetUserId);
+    if (!u) {
+      return res.status(404).json({ message: "Target user not found", user_id: targetUserId });
+    }
+
     const coins = ["BTC", "ETH"];
-    let created = [];
+    const created = [];
 
     for (const coin of coins) {
       const [wallet, isNew] = await Wallet.findOrCreate({
-        where: { user_id: userId, coin },
+        where: { user_id: targetUserId, coin },
         defaults: { balance_coin: 0, balance_usd: 0 },
       });
       if (isNew) created.push(wallet);
     }
 
-    res.json({
+    return res.json({
       message: created.length ? "Wallets created" : "Wallets already exist",
+      user_id: targetUserId,
       wallets: created,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error initializing wallets" });
+    console.error("❌ Error initializing wallets:", err);
+    return res.status(500).json({ message: "Error initializing wallets" });
   }
 };
 
@@ -48,7 +59,6 @@ export const updateWalletPrices = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Fetch live prices from CoinGecko
     const { data } = await axios.get(
       "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd"
     );
@@ -56,9 +66,7 @@ export const updateWalletPrices = async (req, res) => {
     const btcPrice = data.bitcoin.usd;
     const ethPrice = data.ethereum.usd;
 
-    // Fetch user's wallets
     const wallets = await Wallet.findAll({ where: { user_id: userId } });
-
     for (const wallet of wallets) {
       if (wallet.coin === "BTC") {
         wallet.balance_usd = parseFloat(wallet.balance_coin) * btcPrice;
@@ -69,14 +77,14 @@ export const updateWalletPrices = async (req, res) => {
       await wallet.save();
     }
 
-    res.json({
+    return res.json({
       message: "Wallet prices updated successfully",
       btc_price: btcPrice,
       eth_price: ethPrice,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating wallet prices" });
+    console.error("❌ Error updating wallet prices:", err);
+    return res.status(500).json({ message: "Error updating wallet prices" });
   }
 };
 
@@ -88,62 +96,87 @@ export const getWalletTotal = async (req, res) => {
     const userId = req.user.id;
     const wallets = await Wallet.findAll({ where: { user_id: userId } });
 
-    const btc = wallets.find(w => w.coin === "BTC") || { balance_coin: 0, balance_usd: 0 };
-    const eth = wallets.find(w => w.coin === "ETH") || { balance_coin: 0, balance_usd: 0 };
+    const btc = wallets.find((w) => w.coin === "BTC") || { balance_coin: 0, balance_usd: 0 };
+    const eth = wallets.find((w) => w.coin === "ETH") || { balance_coin: 0, balance_usd: 0 };
 
     const total_usd = parseFloat(btc.balance_usd) + parseFloat(eth.balance_usd);
 
-    res.json({
+    return res.json({
       btc: { balance_coin: btc.balance_coin, balance_usd: btc.balance_usd },
       eth: { balance_coin: eth.balance_coin, balance_usd: eth.balance_usd },
       total_usd,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error retrieving total wallet balance" });
+    console.error("❌ Error retrieving total wallet balance:", err);
+    return res.status(500).json({ message: "Error retrieving total wallet balance" });
   }
 };
 
 // ─────────────────────────────────────────────
-// 5️⃣ UPDATE wallet balance (Deposit / Withdraw)
+// 5️⃣ UPDATE wallet balance (Admin or User)
 // ─────────────────────────────────────────────
 export const updateWalletBalance = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { coin, amount, type } = req.body; // e.g. { "coin": "BTC", "amount": 0.01, "type": "deposit" }
+    const requesterId = req.user.id;
+    let { user_id, coin, amount, type } = req.body;
 
-    if (!coin || !amount || !type)
+    if (!coin || !amount || !type) {
       return res.status(400).json({ message: "coin, amount, and type are required" });
+    }
 
-    const wallet = await Wallet.findOne({ where: { user_id: userId, coin } });
-    if (!wallet) return res.status(404).json({ message: "Wallet not found" });
+    coin = String(coin).trim().toUpperCase();
+    const targetUserId = user_id || requesterId;
 
-    // Apply logic
+    // ✅ verify target user exists before FK insert
+    const targetUser = await User.findByPk(targetUserId);
+    if (!targetUser) {
+      return res.status(404).json({
+        message: "Target user not found in Users table",
+        user_id: targetUserId,
+      });
+    }
+
+    // ✅ find or create wallet
+    let wallet = await Wallet.findOne({ where: { user_id: targetUserId, coin } });
+    if (!wallet) {
+      wallet = await Wallet.create({
+        user_id: targetUserId,
+        coin,
+        balance_coin: 0,
+        balance_usd: 0,
+      });
+      console.log(`🪙 Created new ${coin} wallet for user ${targetUserId}`);
+    }
+
+    // ✅ apply update logic
     let newBalance = parseFloat(wallet.balance_coin);
+    const amt = Math.abs(parseFloat(amount));
+
     if (type === "deposit") {
-      newBalance += parseFloat(amount);
+      newBalance += amt;
     } else if (type === "withdraw") {
-      if (newBalance < amount) {
+      if (newBalance < amt) {
         return res.status(400).json({ message: "Insufficient funds" });
       }
-      newBalance -= parseFloat(amount);
+      newBalance -= amt;
     } else {
       return res.status(400).json({ message: "Invalid transaction type" });
     }
 
-    // Update balance
     wallet.balance_coin = newBalance;
     wallet.updated_at = new Date();
     await wallet.save();
 
-    res.json({
+    console.log(`✅ Wallet ${type} successful for user ${targetUserId}`);
+
+    return res.json({
       message: `Wallet ${type} successful`,
+      user_id: targetUserId,
       coin: wallet.coin,
-      balance_coin: wallet.balance_coin,
+      new_balance: wallet.balance_coin,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error updating wallet balance" });
+    console.error("❌ Error updating wallet balance:", err);
+    return res.status(500).json({ message: "Error updating wallet balance" });
   }
 };
-
