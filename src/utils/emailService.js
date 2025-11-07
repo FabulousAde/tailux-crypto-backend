@@ -22,7 +22,7 @@ export const sendVerificationEmail = async (user, token) => {
       <tr>
         <td style="background-color:#0f172a;padding:24px;text-align:center;">
           <h1 style="color:#fff;font-size:22px;font-weight:600;margin:0;">Tailux Crypto</h1>
-          <p style="color:#94a3b8;font-size:13px;margin:4px 0 0;">Secure Digital Wallet • Trusted Transactions</p>
+          <p style="color:#94a3b8;font-size:13px;margin:4px 0 0;">Secure Digital Wallet</p>
         </td>
       </tr>
       <tr>
