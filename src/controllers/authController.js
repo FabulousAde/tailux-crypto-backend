@@ -124,10 +124,6 @@ export const loginUser = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────
-// VERIFY EMAIL
-// ─────────────────────────────────────────────
-// VERIFY EMAIL WITH REDIRECT
 export const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
@@ -138,6 +134,10 @@ export const verifyEmail = async (req, res) => {
 
     const user = await User.findByPk(decoded.id);
     if (!user) {
+      // If it’s an API/AJAX request → JSON, otherwise redirect
+      if (req.headers.accept?.includes("application/json")) {
+        return res.status(404).json({ success: false, message: "Invalid token" });
+      }
       return res.redirect(`${process.env.FRONTEND_URL}/verify-status?status=invalid`);
     }
 
@@ -146,10 +146,24 @@ export const verifyEmail = async (req, res) => {
       await user.save();
     }
 
-    // Redirect to success page on frontend
+    // ✅ Detect API requests (like your frontend’s axios call)
+    if (req.headers.accept?.includes("application/json")) {
+      return res.status(200).json({
+        success: true,
+        message: "Email verified successfully",
+        user: { id: user.id, email: user.email, name: user.name },
+      });
+    }
+
+    // Otherwise redirect for normal browser visits
     res.redirect(`${process.env.FRONTEND_URL}/verify-status?status=success`);
   } catch (err) {
     console.error("Email verification error:", err);
+
+    if (req.headers.accept?.includes("application/json")) {
+      return res.status(400).json({ success: false, message: "Invalid or expired link" });
+    }
+
     res.redirect(`${process.env.FRONTEND_URL}/verify-status?status=failed`);
   }
 };
