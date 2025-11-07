@@ -4,6 +4,7 @@ import {
   loginUser,
   verifyEmail,
   getProfile,
+  getAllUsers
 } from "../controllers/authController.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
 
@@ -14,5 +15,6 @@ router.post("/register", registerUser);
 router.post("/login", loginUser);
 router.get("/verify/:token", verifyEmail);
 router.get("/me", verifyToken, getProfile);
+router.get("/all", /*authenticate,*/ getAllUsers);
 
 export default router;
